@@ -244,16 +244,14 @@ class EC2FileManager:
                 self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
                 # Connect using key file
-                key_path = self.key_path_var.get()
+                key_path = self.key_path_var.get().strip()
                 if not os.path.exists(key_path):
                     raise Exception("Key file not found")
 
-                private_key = paramiko.RSAKey.from_private_key_file(key_path)
-
                 self.ssh_client.connect(
-                    hostname=self.host_var.get(),
-                    username=self.username_var.get(),
-                    pkey=private_key,
+                    hostname=self.host_var.get().strip(),
+                    username=self.username_var.get().strip(),
+                    key_filename=key_path.strip(),
                     timeout=10
                 )
 
@@ -685,13 +683,21 @@ class EC2FileManager:
 
     def view_text_file(self, remote_path, filename):
         try:
-            # Read file content
-            with self.sftp_client.open(remote_path, 'r') as remote_file:
-                content = remote_file.read()
+            # Read file content in binary mode to handle any encoding
+            with self.sftp_client.open(remote_path, 'rb') as remote_file:
+                raw = remote_file.read()
+
+            # Try to decode: UTF-8 first, then latin-1 (which never fails)
+            for encoding in ('utf-8-sig', 'utf-8', 'latin-1'):
+                try:
+                    content = raw.decode(encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
 
             # Create viewer window
             viewer = tk.Toplevel(self.root)
-            viewer.title(f"Text Viewer - {filename}")
+            viewer.title(f"Text Editor - {filename}")
             viewer.geometry("800x600")
 
             # Create menu
@@ -728,11 +734,10 @@ class EC2FileManager:
             status_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
 
             ttk.Label(status_frame, text=f"File: {filename}").pack(side=tk.LEFT)
-            ttk.Label(status_frame, text=f"Size: {len(content)} bytes").pack(side=tk.RIGHT)
+            ttk.Label(status_frame, text=f"Size: {len(raw)} bytes").pack(side=tk.RIGHT)
 
-        except UnicodeDecodeError:
-            # If it's not valid text, show as hex
-            self.view_binary_file(remote_path, filename)
+        except Exception as e:
+            messagebox.showerror("View Error", f"Failed to open file: {str(e)}")
 
     def view_image_file(self, remote_path, filename):
         try:
