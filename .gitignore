@@ -12,6 +12,11 @@ pems/
 .env.*
 !.env.example
 
+# PyInstaller build output
+dist/
+build/
+*.spec.bak
+
 # Python
 __pycache__/
 *.py[cod]
