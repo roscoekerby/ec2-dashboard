@@ -12,6 +12,9 @@ pems/
 .env.*
 !.env.example
 
+# Local connection state
+last_connection.json
+
 # PyInstaller build output
 dist/
 build/

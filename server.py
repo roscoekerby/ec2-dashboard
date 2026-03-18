@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog, scrolledtext
 import paramiko
 import os
+import json
 import threading
 from datetime import datetime
 import stat
@@ -13,6 +14,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "last_connection.json")
+
+
+def load_last_connection():
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_last_connection(host, username, key_path):
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump({"host": host, "username": username, "key_path": key_path}, f)
+    except Exception:
+        pass
 
 
 class EC2FileManager:
@@ -28,10 +46,11 @@ class EC2FileManager:
         self.connected = False
         self.current_remote_path = "/"
 
-        # Connection defaults loaded from .env
-        self.default_host = os.environ.get("EC2_HOST", "")
-        self.default_username = os.environ.get("EC2_USERNAME", "ubuntu")
-        self.default_key_path = os.environ.get("EC2_KEY_PATH", "")
+        # Connection defaults: last used values take priority over .env
+        last = load_last_connection()
+        self.default_host = last.get("host") or os.environ.get("EC2_HOST", "")
+        self.default_username = last.get("username") or os.environ.get("EC2_USERNAME", "ubuntu")
+        self.default_key_path = last.get("key_path") or os.environ.get("EC2_KEY_PATH", "")
 
         self.setup_ui()
 
@@ -262,6 +281,13 @@ class EC2FileManager:
                 self.status_var.set("Connected")
                 self.status_label.config(foreground="green")
 
+                # Persist successful connection details for next launch
+                save_last_connection(
+                    self.host_var.get().strip(),
+                    self.username_var.get().strip(),
+                    key_path
+                )
+
                 # Update button states
                 self.connect_btn.config(state=tk.DISABLED)
                 self.disconnect_btn.config(state=tk.NORMAL)
@@ -371,9 +397,10 @@ class EC2FileManager:
         item = self.tree.item(selection[0])
         filename = item['text'].split(' ', 1)[1]  # Remove icon
 
-        # Check if it's a directory
         if item['values'][0] == "<DIR>":
             self.navigate_to_folder(filename)
+        else:
+            self.view_file()
 
     def navigate_to_folder(self, folder_name):
         if folder_name == "..":
@@ -633,13 +660,11 @@ class EC2FileManager:
                 # Determine file type and viewing method
                 file_ext = os.path.splitext(filename)[1].lower()
 
-                if self.is_text_file(file_ext):
-                    self.view_text_file(remote_path, filename)
-                elif self.is_image_file(file_ext):
+                if self.is_image_file(file_ext):
                     self.view_image_file(remote_path, filename)
                 else:
-                    # For other file types, show hex view
-                    self.view_binary_file(remote_path, filename)
+                    # Open everything as text — user can always edit like a text file
+                    self.view_text_file(remote_path, filename)
 
                 self.progress_var.set(0)
                 self.progress_label_var.set("Ready")
@@ -667,15 +692,33 @@ class EC2FileManager:
             pass
         return 0
 
-    def is_text_file(self, ext):
+    def is_text_file(self, filename):
         text_extensions = {
             '.txt', '.py', '.js', '.html', '.htm', '.css', '.json', '.xml', '.md',
             '.yml', '.yaml', '.ini', '.cfg', '.conf', '.log', '.sql', '.sh', '.bash',
             '.c', '.cpp', '.h', '.hpp', '.java', '.php', '.rb', '.go', '.rs', '.kt',
             '.ts', '.jsx', '.tsx', '.vue', '.svelte', '.r', '.m', '.pl', '.ps1',
-            '.dockerfile', '.gitignore', '.env', '.properties', '.toml', '.csv'
+            '.dockerfile', '.gitignore', '.env', '.properties', '.toml', '.csv',
+            '.example', '.sample', '.template', '.local', '.dist'
         }
-        return ext in text_extensions
+        name = os.path.basename(filename).lower()
+
+        # Check every dot-separated part as an extension (.env.example, .env.local, etc.)
+        parts = name.split('.')
+        for part in parts[1:]:
+            if '.' + part in text_extensions:
+                return True
+
+        # Pure dot-files with no extension (.env, .gitignore, .bashrc, etc.)
+        if name.startswith('.') and name.count('.') == 1:
+            return True
+
+        # Known extensionless text files
+        if name in {'makefile', 'dockerfile', 'procfile', 'vagrantfile', 'gemfile',
+                    'rakefile', 'cmakelists', 'requirements', 'pipfile'}:
+            return True
+
+        return False
 
     def is_image_file(self, ext):
         image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.ico'}
