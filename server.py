@@ -12,12 +12,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+
 
 class EC2FileManager:
     def __init__(self, root):
         self.root = root
         self.root.title("EC2 File Manager - ROSCODE TECH")
         self.root.geometry("1000x700")
+        self._set_window_icon()
 
         # Connection variables
         self.ssh_client = None
@@ -31,6 +34,18 @@ class EC2FileManager:
         self.default_key_path = os.environ.get("EC2_KEY_PATH", "")
 
         self.setup_ui()
+
+    def _set_window_icon(self):
+        ico = os.path.join(ASSETS_DIR, "icon.ico")
+        png = os.path.join(ASSETS_DIR, "icon_256.png")
+        try:
+            if os.path.exists(ico):
+                self.root.iconbitmap(ico)
+            elif os.path.exists(png):
+                img = ImageTk.PhotoImage(Image.open(png))
+                self.root.iconphoto(True, img)
+        except Exception:
+            pass
 
     def setup_ui(self):
         # Main frame
